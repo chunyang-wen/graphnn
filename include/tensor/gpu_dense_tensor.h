@@ -205,6 +205,16 @@ public:
 	void Axpy(Dtype a, DTensor<GPU, Dtype>& x);
 
 	/**
+	 * @brief      the same axpy defined in blas: y = a * x + y, but on
+	 * 				selected rows
+	 *
+	 * @param      row_idxes  The row idxes
+	 * @param[in]  a          scalar a
+	 * @param      x          dense tensor x
+	 */
+	void RowSelectiveAxpy(DTensor<GPU, int>& row_idxes, Dtype a, DTensor<GPU, Dtype>& x);
+
+	/**
 	 * @brief      the same axpy defined in blas: y = a * x + y; but here
 	 * 				x is a sparse tensor
 	 *
@@ -221,6 +231,15 @@ public:
 	 * @param[in]  b     scalar b
 	 */
 	void Axpby(Dtype a, DTensor<GPU, Dtype>& x, Dtype b);
+
+	/**
+	 * @brief      the same axpby defined in blas: y = a * x + b * y
+	 *
+	 * @param[in]  a     scalar a
+	 * @param      x     row sparse tensor x
+	 * @param[in]  b     scalar b
+	 */
+	void RowSparseAxpby(Dtype a, RowSpTensor<GPU, Dtype>& x, Dtype b);
 
 	/**
 	 * @brief      concatenate cols of {matrix}
@@ -245,7 +264,7 @@ public:
 	 * @param      src   The sparse tensor
 	 */
 	void ElewiseMul(SpTensor<GPU, Dtype>& src);
-
+	
 	/**
 	 * @brief      element-wise multiplication between two dense tensors; broadcasting
 	 * 				is enabled, but we assume the result tensor keeps the shape of this

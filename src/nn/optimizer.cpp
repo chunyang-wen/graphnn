@@ -20,7 +20,7 @@ Dtype IOptimizer<mode, Dtype>::ClipGradients()
 		Dtype norm = 0.0;
 		for (auto& map_pair : param_set->params)
 		{
-			auto p = map_pair.second;		    
+			auto p = map_pair.second;
 		    Dtype norm2 = p->grad.Norm2();
 		    norm += norm2 * norm2;
 		}
@@ -48,8 +48,8 @@ void SGDOptimizer<mode, Dtype>::Update()
     for (auto& param_pair : this->param_set->params)
     {        
         auto& param = param_pair.second;
-        param->value.Axpby(-this->cur_lr, param->grad, 1 - this->cur_lr * this->l2_penalty);
-        param->grad.Zeros();
+        param->value.RowSparseAxpby(-this->cur_lr, param->grad, 1 - this->cur_lr * this->l2_penalty);
+        param->grad.RowSpZeros();
     }
 }
 
@@ -71,7 +71,7 @@ void MomentumSGDOptimizer<mode, Dtype>::Update()
     for (auto& param_pair : this->param_set->params)
     {        
         auto& name = param_pair.first;
-        auto& param = param_pair.second;        
+        auto& param = param_pair.second;   
         if (momentum > 0)
         {
             if (acc_grad_dict.count(name) == 0)
@@ -79,12 +79,15 @@ void MomentumSGDOptimizer<mode, Dtype>::Update()
                 acc_grad_dict[name] = std::make_shared< DTensor<mode, Dtype> >(param->grad.shape);
                 acc_grad_dict[name]->Zeros();
             }
-            param->grad.Axpy(this->l2_penalty, param->value);
-            acc_grad_dict[name]->Axpby(this->cur_lr, param->grad, momentum);
-            param->value.Axpy(-1.0, *acc_grad_dict[name]);
+            param->grad.RowSparseAxpy(this->l2_penalty, param->value);
+            acc_grad_dict[name]->RowSparseAxpby(this->cur_lr, param->grad, momentum);
+            if (param->grad.is_full)
+            	param->value.Axpy(-1.0, *acc_grad_dict[name]);
+            else if (param->grad.row_idxes.shape.Count())
+            	param->value.RowSelectiveAxpy(param->grad.row_idxes, -1.0, *acc_grad_dict[name]);
         } else // do normal sgd
-            param->value.Axpby(-this->cur_lr, param->grad, 1 - this->cur_lr * this->l2_penalty);
-        param->grad.Zeros();
+            param->value.RowSparseAxpby(-this->cur_lr, param->grad, 1 - this->cur_lr * this->l2_penalty);
+        param->grad.RowSpZeros();
     }    
 }
 
@@ -119,30 +122,40 @@ void AdamOptimizer<mode, Dtype>::Update()
 		auto& m_t = *(first_moments[name]); 
 		auto& v_t = *(second_moments[name]);
 		// clipping and weight decay
-		param->grad.Axpby(this->l2_penalty, param->value, gscale);
+		param->grad.RowSparseAxpby(this->l2_penalty, param->value, gscale);
 		// m_t = beta_1 * m_{t-1} + (1 - beta_1) * gt
-		m_t.Axpby(1 - beta_1, param->grad, beta_1);
+		m_t.RowSparseAxpby(1 - beta_1, param->grad, beta_1);
 		// v_t = beta_2 * v_{t-1} + (1 - beta_2) * gt^2
 		param->grad.Square();
-		v_t.Axpby(1 - beta_2, param->grad, beta_2);
+		v_t.RowSparseAxpby(1 - beta_2, param->grad, beta_2);
 
 		// 1 / (1 - beta^t)
 		Dtype s1 = 1.0 / (1 - pow(beta_1, this->cur_iter));
 		Dtype s2 = 1.0 / (1 - pow(beta_2, this->cur_iter)); 
 
 		// v_hat = 1 ./ (sqrt(v_t / (1 - beta_2^t)) + eps)
-		v_hat.CopyFrom(v_t);
+
+		ASSERT(!v_hat.is_full && v_hat.row_idxes.shape.Count() == 0, "v_hat should be empty at the beginning");
+		if (v_hat.data == nullptr || v_t.shape.Count() > v_hat.data->mem_size)
+		{
+			v_hat.Reshape(v_t.shape.dims);
+			v_hat.FullZeros();
+		}
+
+		v_hat.ReshapeLike(param->grad);		
+
+		v_hat.RowSparseCopy(v_t);
 		v_hat.Scale(s2);
 
 		v_hat.Sqrt();
 
-		v_hat.Add(eps);
-		v_hat.Inv();
-		                
+		v_hat.RowSparseAdd(eps);
+		v_hat.RowSparseInv();
 		v_hat.ElewiseMul(m_t);
-		param->value.Axpby(-this->cur_lr * s1, v_hat, 1.0);
 
-		param->grad.Zeros();
+		param->value.RowSparseAxpby(-this->cur_lr * s1, v_hat, 1.0);
+		v_hat.RowSpZeros();	
+		param->grad.RowSpZeros();
     }
 }
 
